@@ -88,4 +88,5 @@ if not hist.empty:
         else: st.error("Δεν έχεις αρκετά εικονικά χρήματα!")
 
     st.sidebar.metric("Εικονικό Κεφάλαιο", f"{st.session_state.balance:.2f} $")
+
     st.sidebar.write("📦 Πορτοφόλι:", st.session_state.portfolio)
