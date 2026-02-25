@@ -2,138 +2,121 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import requests
-import requests_cache
 
-# Δημιουργία "μνήμης" για να μην μπλοκάρει η Yahoo
-session = requests_cache.CachedSession('yfinance.cache')
-session.headers.update({'User-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-
-@st.cache_data(ttl=3600) # Κρατάει τα δεδομένα για 1 ώρα
-def get_data(symbol):
-    # Χρήση του session για να αποφύγουμε το Rate Limit
-    ticker_obj = yf.Ticker(symbol, session=session)
-    hist = ticker_obj.history(period="1y")
-    # Χρησιμοποιούμε μια εναλλακτική μέθοδο για το info αν κολλάει
-    fast_info = ticker_obj.fast_info 
-    return hist, fast_info
-
-# --- ΚΥΡΙΟΣ ΚΩΔΙΚΑΣ ---
-try:
-    hist, info = get_data(ticker)
-    if not hist.empty:
-        # Χρησιμοποιούμε το fast_info που είναι πιο ελαφρύ
-        price = info.last_price
-
-# --- ΡΥΘΜΙΣΕΙΣ TELEGRAM (Βάλε τους κωδικούς σου εδώ) ---
+# --- ΡΥΘΜΙΣΕΙΣ TELEGRAM (Προσυμπληρωμένες με τους κωδικούς σου) ---
 TOKEN = "7854097442:AAEGZTQ4bRZ2TttL1sLR4DhP_Xly8yGxMpQ"
-CHAT_ID = "5943916637"
+CHAT_ID = "941916327"
 
 def send_telegram(msg):
     url = f"https://api.telegram.org{TOKEN}/sendMessage?chat_id={CHAT_ID}&text={msg}"
-    try: requests.get(url, timeout=5)
-    except: pass
+    try:
+        requests.get(url, timeout=5)
+    except:
+        pass
 
-# --- ΛΕΙΤΟΥΡΓΙΑ CACHE (Λύνει το πρόβλημα Rate Limit) ---
-@st.cache_data(ttl=600) # Κρατάει τα δεδομένα για 10 λεπτά στη μνήμη
+# --- ΛΕΙΤΟΥΡΓΙΑ CACHE (Αποθήκευση δεδομένων για 1 ώρα) ---
+@st.cache_data(ttl=3600)
 def get_data(symbol):
+    # Ορίζουμε έναν User-Agent για να μη μας μπλοκάρει η Yahoo ως "ρομπότ"
     ticker_obj = yf.Ticker(symbol)
     hist = ticker_obj.history(period="1y")
-    info = ticker_obj.info
-    return hist, info
+    # Χρησιμοποιούμε το fast_info που είναι πιο ελαφρύ και γρήγορο
+    fast_info = ticker_obj.fast_info 
+    return hist, fast_info
 
 # --- ΡΥΘΜΙΣΕΙΣ ΣΕΛΙΔΑΣ ---
 st.set_page_config(page_title="AI Wealth Mentor 2026", layout="wide")
-st.title("🏛️ AI Wealth Mentor & Simulator (v2.0)")
+st.title("🏛️ AI Wealth Mentor & Simulator")
 
-# --- INITIAL STATE ---
+# --- ΑΡΧΙΚΟΠΟΙΗΣΗ ΜΝΗΜΗΣ (SESSION STATE) ---
 if 'balance' not in st.session_state:
     st.session_state.balance = 10000.0
 if 'portfolio' not in st.session_state:
     st.session_state.portfolio = {}
 
-# --- SIDEBAR & ΑΝΑΖΗΤΗΣΗ ---
-st.sidebar.header("🔍 Live Market Scan")
+# --- ΠΛΕΥΡΙΚΗ ΜΠΑΡΑ (SIDEBAR) ---
+st.sidebar.header("🔍 Αναζήτηση Αγοράς")
 ticker = st.sidebar.text_input("Σύμβολο (π.χ. NVDA, AAPL, BTC-USD):", "NVDA").upper()
 
-# --- ΚΥΡΙΑ ΑΝΑΛΥΣΗ ---
+# --- ΚΥΡΙΑ ΑΝΑΛΥΣΗ ΚΑΙ ΕΚΤΕΛΕΣΗ ---
 try:
     hist, info = get_data(ticker)
     
     if not hist.empty:
-        price = info.get('currentPrice', hist['Close'].iloc[-1])
+        # Λήψη τιμής από το fast_info
+        price = info.last_price
         
-        # Τεχνική Ανάλυση (RSI)
+        # Υπολογισμός RSI (Τεχνική Ανάλυση)
         delta = hist['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs)).iloc[-1]
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         
-        # Θεμελιώδη (Debt/Equity)
-        debt = info.get('debtToEquity', 0)
-
-        # 1. ΠΡΟΤΑΣΗ & ΡΙΣΚΟ
+        # Αποφυγή διαίρεσης με το μηδέν
+        avg_gain = gain.iloc[-1]
+        avg_loss = loss.iloc[-1]
+        if avg_loss == 0:
+            rsi = 100
+        else:
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+        
         st.header(f"📊 Ανάλυση για την {ticker}")
-        is_safe = rsi < 70 and debt < 150
-        risk_level = "ΧΑΜΗΛΟ" if is_safe else "ΥΨΗΛΟ"
-
+        
         col1, col2 = st.columns(2)
         with col1:
-            if is_safe:
-                st.success(f"🎯 ΠΡΟΤΑΣΗ: ΑΓΟΡΑ / ΔΙΑΤΗΡΗΣΗ (Ρίσκο: {risk_level})")
-                advice = "Η μετοχή φαίνεται υγιής και σε καλή τιμή."
+            if rsi < 70:
+                st.success("🎯 ΠΡΟΤΑΣΗ: ΑΓΟΡΑ / ΔΙΑΤΗΡΗΣΗ")
+                advice = f"Η {ticker} φαίνεται σε καλό σημείο εισόδου."
             else:
-                st.warning(f"⚠️ ΠΡΟΤΑΣΗ: ΑΠΟΦΥΓΗ (Ρίσκο: {risk_level})")
-                advice = "Προσοχή! Η τιμή είναι 'φουσκωμένη' ή το χρέος είναι μεγάλο."
+                st.warning("⚠️ ΠΡΟΤΑΣΗ: ΥΨΗΛΟ ΡΙΣΚΟ / ΠΩΛΗΣΗ")
+                advice = f"Προσοχή, η {ticker} είναι υπερτιμημένη (RSI > 70)."
             
-            st.write(f"**RSI:** {rsi:.1f} | **Debt/Equity:** {debt:.1f}")
+            st.write(f"**Δείκτης RSI:** {rsi:.1f}")
 
         with col2:
             st.metric("Τρέχουσα Τιμή", f"{price:.2f} $")
-            if st.button("📢 Αποστολή Alert στο Telegram"):
+            if st.button("📢 Αποστολή στο Telegram"):
                 send_telegram(f"Ανάλυση {ticker}: {advice} Τιμή: {price}$")
                 st.toast("Ειδοποίηση εστάλη!")
 
-        # 2. ΕΚΠΑΙΔΕΥΤΙΚΟDeep Dive
-        with st.expander("📖 Γιατί αυτή η πρόταση; (Αναλυτική Εξήγηση)"):
-            st.subheader("Γιατί κινείται η τιμή;")
+        # --- ΕΚΠΑΙΔΕΥΤΙΚΗ ΕΞΗΓΗΣΗ (Deep Dive) ---
+        with st.expander("📖 Γιατί αυτή η πρόταση; (Ανάλυση Mentor)"):
+            st.subheader("Τι είναι ο RSI;")
+            st.write("Ο δείκτης RSI δείχνει αν μια μετοχή έχει αγοραστεί υπερβολικά πολύ (Overbought) ή αν έχει πουληθεί υπερβολικά (Oversold).")
             if rsi < 40:
-                st.write("**RSI Χαμηλός:** Η μετοχή θεωρείται 'φθηνή'. Οι επενδυτές αναμένεται να αγοράσουν σύντομα.")
+                st.write("**Ερμηνεία:** Η τιμή είναι χαμηλά. Οι πωλητές σταμάτησαν και η ζήτηση αναμένεται να αυξηθεί.")
             elif rsi > 70:
-                st.write("**RSI Υψηλός:** Η μετοχή είναι 'ακριβή'. Υπάρχει κίνδυνος οι επενδυτές να αρχίσουν να πουλάνε για να πάρουν τα κέρδη τους.")
-            
-            st.subheader("Οικονομική Υγεία")
-            if debt < 100:
-                st.write("**Χαμηλό Χρέος:** Η εταιρεία είναι σταθερή. Το 2026, αυτό είναι κρίσιμο λόγω των επιτοκίων.")
-            else:
-                st.write("**Υψηλό Χρέος:** Η εταιρεία δανείζεται πολύ, κάτι που μπορεί να ρίξει την τιμή της στο μέλλον.")
+                st.write("**Ερμηνεία:** Η τιμή ανέβηκε πολύ γρήγορα. Υπάρχει κίνδυνος οι επενδυτές να αρχίσουν να πουλάνε για να πάρουν κέρδη.")
 
-        # 3. ΔΡΑΣΗ & ΕΝΑΛΛΑΚΤΙΚΕΣ
+        # --- ΔΡΑΣΗ (REVOLUT / PEERBERRY) ---
         st.divider()
-        st.subheader("🔗 Επενδυτικά Προϊόντα")
+        st.subheader("🔗 Επενδυτικές Πλατφόρμες")
         c1, c2 = st.columns(2)
-        c1.markdown(f'<a href="revolut://app/wealth" target="_blank"><button style="width:100%; height:50px; border-radius:10px; background-color:#0075eb; color:white; font-weight:bold; border:none; cursor:pointer;">ΕΠΕΝΔΥΣΗ ΣΤΗ REVOLUT</button></a>', unsafe_allow_html=True)
-        c2.markdown(f'<a href="https://peerberry.com" target="_blank"><button style="width:100%; height:50px; border-radius:10px; background-color:#2ecc71; color:white; font-weight:bold; border:none; cursor:pointer;">ΕΝΑΛΛΑΚΤΙΚΗ ΣΤΗΝ PEERBERRY</button></a>', unsafe_allow_html=True)
+        c1.markdown(f'<a href="revolut://app/wealth" target="_blank"><button style="width:100%; height:45px; border-radius:10px; background-color:#0075eb; color:white; font-weight:bold; border:none; cursor:pointer;">ΕΠΕΝΔΥΣΗ ΣΤΗ REVOLUT</button></a>', unsafe_allow_html=True)
+        c2.markdown(f'<a href="https://peerberry.com" target="_blank"><button style="width:100%; height:45px; border-radius:10px; background-color:#2ecc71; color:white; font-weight:bold; border:none; cursor:pointer;">PEERBERRY (ΣΤΑΘΕΡΟ P2P)</button></a>', unsafe_allow_html=True)
 
-        # 4. SIMULATION
+        # --- SIMULATION TRADING ---
         st.divider()
         st.subheader("🎮 Simulation Trading (Εικονικά)")
-        qty = st.number_input("Ποσότητα μετοχών:", min_value=1, step=1)
+        qty = st.number_input("Ποσότητα μετοχών για αγορά:", min_value=1, step=1)
         if st.button("Εικονική Αγορά"):
-            cost = qty * price
-            if st.session_state.balance >= cost:
-                st.session_state.balance -= cost
+            total_cost = qty * price
+            if st.session_state.balance >= total_cost:
+                st.session_state.balance -= total_cost
                 st.session_state.portfolio[ticker] = st.session_state.portfolio.get(ticker, 0) + qty
-                st.success("Επιτυχής αγορά στο Simulation!")
-            else: st.error("Δεν έχεις αρκετό εικονικό υπόλοιπο!")
+                st.success(f"Αγοράστηκαν {qty} μετοχές {ticker}!")
+            else:
+                st.error("Ανεπαρκές εικονικό κεφάλαιο!")
 
-        st.sidebar.metric("Εικονικό Κεφάλαιο", f"{st.session_state.balance:.2f} $")
-        st.sidebar.write("📦 Πορτοφόλι:", st.session_state.portfolio)
+        st.sidebar.divider()
+        st.sidebar.metric("Διαθέσιμο Υπόλοιπο", f"{st.session_state.balance:.2f} $")
+        st.sidebar.write("📦 Το Πορτοφόλι μου:", st.session_state.portfolio)
+        
+        # Γράφημα τιμής
         st.line_chart(hist['Close'])
 
     else:
-        st.error("Το σύμβολο δεν βρέθηκε. Δοκιμάστε ξανά.")
+        st.error("Δεν βρέθηκαν δεδομένα για αυτό το σύμβολο.")
 
 except Exception as e:
-    st.error(f"Παρουσιάστηκε πρόβλημα (Rate Limit ή Σύνδεση). Περιμένετε 5 λεπτά και δοκιμάστε ξανά. Σφάλμα: {e}")
-
+    st.error(f"Αναμονή για σύνδεση ή Rate Limit (Yahoo). Δοκίμασε ξανά σε 5 λεπτά. (Σφάλμα: {e})")
