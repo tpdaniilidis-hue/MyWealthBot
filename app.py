@@ -2,86 +2,83 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import requests
+from datetime import datetime
 
 # --- ΡΥΘΜΙΣΕΙΣ TELEGRAM ---
 TOKEN = "7854097442:AAEGZTQ4bRZ2TttL1sLR4DhP_Xly8yGxMpQ"
 CHAT_ID = "941916327"
 
 def send_telegram(msg):
-    url = f"https://api.telegram.org{TOKEN}/sendMessage?chat_id={CHAT_ID}&text={msg}"
+    url = f"https://api.telegram.org{TOKEN}/sendMessage?chat_id={CHAT_ID}&text={msg}&parse_mode=Markdown"
     try: requests.get(url, timeout=5)
     except: pass
 
-# --- ΠΑΓΚΟΣΜΙΑ ΛΙΣΤΑ ΣΑΡΩΣΗΣ (GLOBAL ASSETS 2026) ---
-GLOBAL_WATCHLIST = {
-    "Technology (USA)": ["NVDA", "PLTR", "TSLA", "AMD", "META"],
-    "Europe Blue Chips": ["ASML.AS", "MC.PA", "SAP.DE", "SIE.DE"],
-    "Safe Havens (ETFs/Gold)": ["GLD", "SLV", "VOO", "VWCE.DE"],
-    "Fixed Income (Bonds)": ["BND", "TLT", "IBHF"], # iBonds 2026
-    "Emerging Markets": ["EEM", "BABA", "RELIANCE.NS"],
-    "Crypto": ["BTC-USD", "ETH-USD", "SOL-USD"]
-}
+# --- ΛΙΣΤΑ ΠΑΓΚΟΣΜΙΩΝ ΠΡΟΪΟΝΤΩΝ ---
+WATCHLIST = ["NVDA", "AAPL", "VWCE.DE", "BND", "BTC-USD", "GLD", "ASML.AS"]
 
-@st.cache_data(ttl=3600)
-def fetch_opportunity(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y")
-        if hist.empty: return None
-        
-        # Υπολογισμός RSI (Τεχνική Ευκαιρία)
-        delta = hist['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rsi = 100 - (100 / (1 + (gain.iloc[-1]/loss.iloc[-1]))) if loss.iloc[-1] != 0 else 100
-        
-        price = float(stock.fast_info.last_price)
-        
-        # ΦΙΛΤΡΟ ΕΥΚΑΙΡΙΑΣ: Εμφάνιση μόνο αν RSI < 45 (Υποτιμημένο)
-        if rsi < 45:
-            return {"Προϊόν": ticker, "Τιμή": f"{price:.2f}$", "RSI": round(rsi, 1), "Σήμα": "🔥 ΑΓΟΡΑ"}
-        return None
-    except: return None
+@st.cache_data(ttl=1800) # 1800 δευτερόλεπτα = 30 λεπτά
+def scan_global_markets():
+    found = []
+    for t in WATCHLIST:
+        try:
+            ticker = yf.Ticker(t)
+            hist = ticker.history(period="1mo")
+            if hist.empty: continue
+            
+            # Υπολογισμός RSI (Τεχνικό Σήμα)
+            delta = hist['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rsi = 100 - (100 / (1 + (gain.iloc[-1]/loss.iloc[-1]))) if loss.iloc[-1] != 0 else 100
+            
+            # Ακριβή Στοιχεία Προϊόντος
+            full_name = ticker.info.get('longName', t)
+            isin = ticker.info.get('isin', 'N/A')
+            price = ticker.fast_info.last_price
+            
+            # Κριτήριο Ευκαιρίας (RSI < 45)
+            if rsi < 45:
+                # Link για Revolut (Ανοίγει την αναζήτηση με το σύμβολο)
+                rev_link = f"https://revolut.me{t}" 
+                found.append({
+                    "Προϊόν": full_name,
+                    "Σύμβολο": t,
+                    "ISIN": isin,
+                    "Τιμή": f"{price:.2f}$",
+                    "RSI": round(rsi, 1),
+                    "Link": rev_link
+                })
+        except: continue
+    return found
 
-# --- UI ΕΦΑΡΜΟΓΗΣ ---
-st.set_page_config(page_title="Global Opportunity Hunter", layout="wide")
-st.title("🌍 Global Opportunity Hunter 2026")
-st.write(f"Ανάλυση Παγκόσμιας Αγοράς: {pd.Timestamp.now().strftime('%d/%m/%Y')}")
+# --- UI ΕΚΤΕΛΕΣΗ ---
+st.set_page_config(page_title="AI Market Sentinel 2026", layout="wide")
+st.title("🛰️ AI Market Sentinel: Αυτόματη Σάρωση (30')")
 
-# ΚΟΥΜΠΙ ΣΑΡΩΣΗΣ
-if st.button("🔍 Εντοπισμός Παγκόσμιων Ευκαιριών"):
-    opportunities = []
-    with st.spinner("Σάρωση Χρηματιστηρίων ΗΠΑ, Ευρώπης, Ασίας και Crypto..."):
-        for category, tickers in GLOBAL_WATCHLIST.items():
-            for t in tickers:
-                result = fetch_opportunity(t)
-                if result:
-                    result["Κατηγορία"] = category
-                    opportunities.append(result)
+# Αυτόματη εκτέλεση κάθε φορά που ανοίγει η σελίδα ή μέσω του GitHub Action
+results = scan_global_markets()
+
+if results:
+    st.subheader(f"🎯 Ευκαιρίες που εντοπίστηκαν στις {datetime.now().strftime('%H:%M')}")
+    for item in results:
+        with st.container(border=True):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**{item['Προϊόν']}** ({item['Σύμβολο']})")
+                st.caption(f"ISIN: {item['ISIN']} | RSI: {item['RSI']}")
+            with col2:
+                # Κουμπί για αγορά
+                st.link_button("ΑΓΟΡΑ (Revolut)", item['Link'])
     
-    if opportunities:
-        st.subheader("🎯 Κορυφαίες Ευκαιρίες για Επένδυση Τώρα")
-        df = pd.DataFrame(opportunities)
-        st.table(df)
-        
-        # Ειδοποίηση Telegram
-        best_pick = df.iloc[0]['Προϊόν']
-        send_telegram(f"📢 ΝΕΑ ΠΑΓΚΟΣΜΙΑ ΕΥΚΑΙΡΙΑ: Η επένδυση στο {best_pick} πληροί τα κριτήρια αγοράς σήμερα!")
-    else:
-        st.info("Δεν βρέθηκαν έντονες ευκαιρίες (RSI < 45) αυτή τη στιγμή. Η παγκόσμια αγορά φαίνεται δίκαια αποτιμημένη.")
+    # Ειδοποίηση Telegram (Μόνο αν βρεθεί νέα ευκαιρία)
+    if st.button("📢 Χειροκίνητη Αποστολή στο Telegram"):
+        msg = f"*Νέα Ευκαιρία 2026:*\n{results[0]['Προϊόν']}\nΤιμή: {results[0]['Τιμή']}\n[Αγορά στη Revolut]({results[0]['Link']})"
+        send_telegram(msg)
+else:
+    st.info("Η αγορά σαρώνεται... Δεν υπάρχουν έντονα σήματα αγοράς αυτή τη στιγμή.")
 
-# ΕΠΕΝΔΥΤΙΚΗ ΔΙΔΑΣΚΑΛΙΑ
-st.divider()
-with st.expander("📖 Γιατί βλέπω μόνο αυτές τις προτάσεις;"):
-    st.write("""
-    Η εφαρμογή χρησιμοποιεί το **RSI (Relative Strength Index)** ως κύριο φίλτρο. 
-    1. **RSI < 45:** Η επένδυση θεωρείται 'υποτιμημένη' ή σε φάση διόρθωσης. Είναι η στιγμή που οι 'έξυπνοι' επενδυτές αγοράζουν φθηνά.
-    2. **Απουσία Μετοχών:** Αν μια μετοχή (π.χ. NVIDIA) λείπει από τη λίστα, σημαίνει ότι ο RSI της είναι υψηλός (>50), άρα θεωρείται ακριβή για είσοδο αυτή τη στιγμή.
-    3. **Διασπορά:** Σαρώνουμε από Αμερικανική Τεχνολογία μέχρι Ευρωπαϊκά Luxury Brands και Crypto για να έχεις επιλογές σε κάθε τομέα.
-    """)
-
-# ΕΝΑΛΛΑΚΤΙΚΕΣ (PEERBERRY / BONDS)
-st.sidebar.header("🛡️ Εναλλακτική Ασφάλεια")
-st.sidebar.write("**PeerBerry P2P:** Απόδοση 9-12% (Σταθερό)")
-st.sidebar.write("**US Bonds (BND):** Απόδοση ~4.05%")
-st.sidebar.markdown('[Άνοιγμα PeerBerry](https://peerberry.com)')
+# Εναλλακτικά Προϊόντα (PeerBerry)
+st.sidebar.subheader("🏛️ Εναλλακτικές Προτάσεις")
+st.sidebar.write("**PeerBerry P2P**")
+st.sidebar.write("Απόδοση: 9-12% (Σταθερό)")
+st.sidebar.link_button("Άνοιγμα PeerBerry", "https://peerberry.com")
