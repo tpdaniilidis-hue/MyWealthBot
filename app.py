@@ -1,4 +1,4 @@
-importimport streamlit as st
+import streamlit as st
 import yfinance as yf
 import pandas as pd
 import requests
@@ -14,20 +14,19 @@ def send_telegram(msg):
     except:
         pass
 
-# --- ΛΕΙΤΟΥΡΓΙΑ CACHE (Διορθωμένη για το σφάλμα Serialization) ---
+# --- ΛΕΙΤΟΥΡΓΙΑ CACHE ---
 @st.cache_data(ttl=3600)
 def get_clean_data(symbol):
     ticker_obj = yf.Ticker(symbol)
-    # Παίρνουμε το ιστορικό (είναι DataFrame, άρα serializable)
     hist = ticker_obj.history(period="1y")
     
-    # Αντί για όλο το info, παίρνουμε μόνο την τελευταία τιμή και το χρέος
-    # Τα μετατρέπουμε σε απλούς αριθμούς (float)
+    # Μετατροπή σε απλούς αριθμούς για αποφυγή σφαλμάτων serialization
     price = float(ticker_obj.fast_info.last_price)
     
-    # Προσπαθούμε να πάρουμε το Debt to Equity, αν δεν υπάρχει βάζουμε 0
     try:
-        debt = float(ticker_obj.info.get('debtToEquity', 0))
+        # Προσπάθεια λήψης χρέους, αλλιώς 0.0
+        info = ticker_obj.info
+        debt = float(info.get('debtToEquity', 0))
     except:
         debt = 0.0
         
@@ -82,8 +81,8 @@ try:
 
         # ΕΚΠΑΙΔΕΥΣΗ
         with st.expander("📖 Γιατί αυτή η πρόταση;"):
-            st.write(f"**RSI ({rsi:.1f}):** Δείχνει αν η αγορά 'υπερθερμάνθηκε'.")
-            st.write(f"**Debt/Equity ({debt:.1f}):** Δείχνει πόσο χρέος έχει η εταιρεία σε σχέση με τα κεφάλαιά της.")
+            st.write(f"**RSI ({rsi:.1f}):** Δείχνει αν η αγορά είναι υπερτιμημένη (>70) ή ευκαιρία (<30).")
+            st.write(f"**Debt/Equity ({debt:.1f}):** Δείχνει το δανεισμό της εταιρείας. Το 2026 προτιμάμε χαμηλό χρέος.")
 
         # LINKS
         st.divider()
@@ -100,7 +99,7 @@ try:
             if st.session_state.balance >= cost:
                 st.session_state.balance -= cost
                 st.session_state.portfolio[ticker] = st.session_state.portfolio.get(ticker, 0) + qty
-                st.success("Αγοράστηκε!")
+                st.success("Αγοράστηκε στο Simulation!")
             else:
                 st.error("Ανεπαρκές υπόλοιπο.")
 
@@ -109,4 +108,4 @@ try:
         st.line_chart(hist['Close'])
 
 except Exception as e:
-    st.error(f"Αναμονή για δεδομένα (Yahoo). Περίμενε 2 λεπτά και δοκίμασε ξανά. Σφάλμα: {e}")
+    st.error(f"Αναμονή για δεδομένα (Yahoo). Δοκίμασε ξανά σε 2 λεπτά. (Σφάλμα: {e})")
