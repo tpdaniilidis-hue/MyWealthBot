@@ -1,8 +1,28 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import requests
+import requests_cache
+
+# Δημιουργία "μνήμης" για να μην μπλοκάρει η Yahoo
+session = requests_cache.CachedSession('yfinance.cache')
+session.headers.update({'User-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+
+@st.cache_data(ttl=3600) # Κρατάει τα δεδομένα για 1 ώρα
+def get_data(symbol):
+    # Χρήση του session για να αποφύγουμε το Rate Limit
+    ticker_obj = yf.Ticker(symbol, session=session)
+    hist = ticker_obj.history(period="1y")
+    # Χρησιμοποιούμε μια εναλλακτική μέθοδο για το info αν κολλάει
+    fast_info = ticker_obj.fast_info 
+    return hist, fast_info
+
+# --- ΚΥΡΙΟΣ ΚΩΔΙΚΑΣ ---
+try:
+    hist, info = get_data(ticker)
+    if not hist.empty:
+        # Χρησιμοποιούμε το fast_info που είναι πιο ελαφρύ
+        price = info.last_price
 
 # --- ΡΥΘΜΙΣΕΙΣ TELEGRAM (Βάλε τους κωδικούς σου εδώ) ---
 TOKEN = "7854097442:AAEGZTQ4bRZ2TttL1sLR4DhP_Xly8yGxMpQ"
@@ -116,3 +136,4 @@ try:
 
 except Exception as e:
     st.error(f"Παρουσιάστηκε πρόβλημα (Rate Limit ή Σύνδεση). Περιμένετε 5 λεπτά και δοκιμάστε ξανά. Σφάλμα: {e}")
+
