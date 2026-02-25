@@ -10,7 +10,7 @@ TELEGRAM_TOKEN = "7854097442:AAEGZTQ4bRZ2TttL1sLR4DhP_Xly8yGxMpQ"
 CHAT_ID = "5943916637"
 
 def send_telegram(msg):
-    url = f"https://api.telegram.org{TELEGRAM_TOKEN}/sendMessage?chat_id={CHAT_ID}&text={msg}"
+    (url = f"https://api.telegram.org{TELEGRAM_TOKEN}/sendMessage?chat_id={CHAT_ID}&text={msg}")
     try: requests.get(url)
     except: pass
 st.set_page_config(page_title="AI Wealth Mentor 2026", layout="wide")
@@ -89,9 +89,3 @@ if not hist.empty:
     st.sidebar.metric("Εικονικό Κεφάλαιο", f"{st.session_state.balance:.2f} $")
 
     st.sidebar.write("📦 Πορτοφόλι:", st.session_state.portfolio)
-
-
-
-
-
-
